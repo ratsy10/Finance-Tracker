@@ -23,14 +23,12 @@ bcrypt = Bcrypt(app)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# --- MODIFIED: DYNAMIC DATABASE CONFIGURATION ---
+# --- Dynamic Database Configuration ---
 IS_POSTGRES = False
 if 'DATABASE_URL' in os.environ:
-    # Production database configuration (PostgreSQL on Render)
-    DB_CONFIG = dj_database_url.config(conn_max_age=600, ssl_require=False) # ssl_require might be needed depending on Render settings
+    DB_CONFIG = dj_database_url.config(conn_max_age=600, ssl_require=True)
     IS_POSTGRES = True
 else:
-    # Local development database configuration (MariaDB)
     DB_CONFIG = {
         'host': 'localhost',
         'user': 'root',
@@ -51,7 +49,13 @@ def get_db_connection():
     else:
         return mysql.connector.connect(**DB_CONFIG)
 
-# --- Decorator for Token Authentication (Updated to use get_db_connection) ---
+# Helper function to convert tuples to dictionaries for psycopg2
+def tuples_to_dicts(tuples, description):
+    if not tuples:
+        return []
+    return [{desc[0]: value for desc, value in zip(description, row)} for row in tuples]
+
+# --- Decorator for Token Authentication ---
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -65,7 +69,7 @@ def token_required(f):
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
             conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True if not IS_POSTGRES else None) # psycopg2 doesn't have a built-in dict cursor this way
+            cursor = conn.cursor()
             
             cursor.execute("SELECT * FROM users WHERE id = %s", (data['user_id'],))
             current_user_tuple = cursor.fetchone()
@@ -73,18 +77,15 @@ def token_required(f):
             if not current_user_tuple:
                  return jsonify({'message': 'User not found!'}), 401
             
-            # Convert tuple to dictionary if using psycopg2
-            if IS_POSTGRES:
-                current_user = {desc[0]: value for desc, value in zip(cursor.description, current_user_tuple)}
-            else:
-                current_user = current_user_tuple
+            # Convert tuple to dictionary
+            current_user = tuples_to_dicts([current_user_tuple], cursor.description)[0]
 
         except Exception as e:
             print(f"Token error: {e}")
             return jsonify({'message': 'Token is invalid or expired!'}), 401
         finally:
-            if 'cursor' in locals(): cursor.close()
-            if 'conn' in locals(): conn.close()
+            if 'cursor' in locals() and cursor: cursor.close()
+            if 'conn' in locals() and conn: conn.close()
             
         return f(current_user, *args, **kwargs)
     return decorated
@@ -114,9 +115,9 @@ def signup():
     except Exception as err:
         return jsonify({"status": "error", "message": f"Database error: {err}"}), 500
     finally:
-        if 'conn' in locals() and conn:
-            cursor.close()
-            conn.close()
+        # UNIVERSAL FIX: Simplified and safe for both libraries
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -129,14 +130,11 @@ def login():
 
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True if not IS_POSTGRES else None)
+        cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
         user_tuple = cursor.fetchone()
-
-        if IS_POSTGRES and user_tuple:
-            user = {desc[0]: value for desc, value in zip(cursor.description, user_tuple)}
-        else:
-            user = user_tuple
+        
+        user = tuples_to_dicts([user_tuple], cursor.description)[0] if user_tuple else None
 
         if not user or not bcrypt.check_password_hash(user['password_hash'], password):
             return jsonify({"status": "error", "message": "Invalid credentials"}), 401
@@ -149,10 +147,9 @@ def login():
     except Exception as err:
         return jsonify({"status": "error", "message": f"Database error: {err}"}), 500
     finally:
-        if 'cursor' in locals() and cursor:
-            cursor.close()
-        if 'conn' in locals() and conn and conn.is_connected():
-            conn.close()
+        # UNIVERSAL FIX: Simplified and safe for both libraries
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
 
 # --- Expense & Budget Endpoints ---
 @app.route('/add_expense', methods=['POST'])
@@ -189,9 +186,8 @@ def add_expense_api(current_user):
         print(f"Database Error: {err}")
         return jsonify({"status": "error", "message": "Database operation failed"}), 500
     finally:
-        if 'conn' in locals() and conn:
-            cursor.close()
-            conn.close()
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
 
     return jsonify({"status": "success", "message": "Expense added successfully", "data": analyzed_data}), 201
 
@@ -200,9 +196,8 @@ def add_expense_api(current_user):
 def get_dashboard_data(current_user):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True if not IS_POSTGRES else None)
+        cursor = conn.cursor()
 
-        # SQL for MariaDB and PostgreSQL is slightly different for date functions
         date_filter_sql = "MONTH(e.expense_date) = MONTH(CURDATE()) AND YEAR(e.expense_date) = YEAR(CURDATE())"
         if IS_POSTGRES:
             date_filter_sql = "EXTRACT(MONTH FROM e.expense_date) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM e.expense_date) = EXTRACT(YEAR FROM CURRENT_DATE)"
@@ -217,6 +212,7 @@ def get_dashboard_data(current_user):
         """
         cursor.execute(query, (current_user['id'], current_user['id']))
         dashboard_tuples = cursor.fetchall()
+        dashboard_data = tuples_to_dicts(dashboard_tuples, cursor.description)
         
         cursor.execute("""
             SELECT e.description, e.amount, c.name as category, e.expense_date
@@ -225,15 +221,7 @@ def get_dashboard_data(current_user):
             WHERE e.user_id = %s ORDER BY e.expense_date DESC LIMIT 5
         """, (current_user['id'],))
         recent_tuples = cursor.fetchall()
-
-        if IS_POSTGRES:
-            desc_dashboard = cursor.description
-            dashboard_data = [{desc[0]: value for desc, value in zip(desc_dashboard, row)} for row in dashboard_tuples]
-            desc_recent = cursor.description
-            recent_expenses = [{desc[0]: value for desc, value in zip(desc_recent, row)} for row in recent_tuples]
-        else:
-            dashboard_data = dashboard_tuples
-            recent_expenses = recent_tuples
+        recent_expenses = tuples_to_dicts(recent_tuples, cursor.description)
         
         for expense in recent_expenses:
             if isinstance(expense['expense_date'], datetime.datetime):
@@ -248,33 +236,25 @@ def get_dashboard_data(current_user):
         print(f"Database Error: {err}")
         return jsonify({"status": "error", "message": "Database operation failed"}), 500
     finally:
-        if 'conn' in locals() and conn:
-            cursor.close()
-            conn.close()
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
 
 @app.route('/get_budgets', methods=['GET'])
 @token_required
 def get_budgets(current_user):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True if not IS_POSTGRES else None)
+        cursor = conn.cursor()
         query = "SELECT c.id, c.name, b.amount FROM categories c LEFT JOIN budgets b ON c.id = b.category_id AND b.user_id = %s"
         cursor.execute(query, (current_user['id'],))
         budget_tuples = cursor.fetchall()
-        
-        if IS_POSTGRES:
-            description = cursor.description
-            budgets = [{desc[0]: value for desc, value in zip(description, row)} for row in budget_tuples]
-        else:
-            budgets = budget_tuples
-
+        budgets = tuples_to_dicts(budget_tuples, cursor.description)
         return jsonify({"status": "success", "budgets": budgets})
     except Exception as err:
         return jsonify({"status": "error", "message": f"Database error: {err}"}), 500
     finally:
-        if 'conn' in locals() and conn:
-            cursor.close()
-            conn.close()
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
 
 @app.route('/set_budget', methods=['POST'])
 @token_required
@@ -291,7 +271,6 @@ def set_budget(current_user):
         cursor = conn.cursor()
         
         if IS_POSTGRES:
-            # PostgreSQL uses ON CONFLICT
             query = """
                 INSERT INTO budgets (user_id, category_id, amount) 
                 VALUES (%s, %s, %s)
@@ -299,24 +278,21 @@ def set_budget(current_user):
                 DO UPDATE SET amount = EXCLUDED.amount;
             """
         else:
-            # MariaDB uses ON DUPLICATE KEY UPDATE
             query = """
                 INSERT INTO budgets (user_id, category_id, amount) 
                 VALUES (%s, %s, %s)
                 ON DUPLICATE KEY UPDATE amount = VALUES(amount);
             """
-
         cursor.execute(query, (current_user['id'], category_id, amount))
         conn.commit()
         return jsonify({"status": "success", "message": "Budget saved successfully"})
     except Exception as err:
         return jsonify({"status": "error", "message": f"Database error: {err}"}), 500
     finally:
-        if 'conn' in locals() and conn:
-            cursor.close()
-            conn.close()
+        if 'cursor' in locals() and cursor: cursor.close()
+        if 'conn' in locals() and conn: conn.close()
 
-# --- AI Core Function (Unchanged) ---
+# --- AI Core Function ---
 def analyze_expense(text):
     categories = ["Food", "Online Shopping", "Transport", "Entertainment", "Other"]
     prompt = f"""
