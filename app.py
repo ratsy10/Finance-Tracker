@@ -302,7 +302,7 @@ def analyze_expense(text):
     Your response MUST be a JSON object with two keys: "amount" (as a number) and "category" (as a string from the list).
     """
     try:
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         response = model.generate_content(prompt)
         response_text = response.text.strip().replace('```json', '').replace('```', '').strip()
         result = json.loads(response_text)
