@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Budgets</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; background-color: #f4f7f9; }
+        header { background: #2c3e50; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        header a { color: white; text-decoration: none; }
+        main { max-width: 600px; margin: 2rem auto; background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        h1, h2 { color: #2c3e50; }
+        .budget-form-group { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        label { font-weight: bold; color: #333; }
+        input[type="number"] { padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; width: 120px; text-align: right; }
+        button { width: 100%; padding: 0.8rem; border: none; border-radius: 4px; background-color: #27ae60; color: white; font-size: 1rem; cursor: pointer; margin-top: 1rem; }
+        button:hover { background-color: #229954; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Manage Budgets</h1>
+        <a href="index.html">← Back to Dashboard</a>
+    </header>
+
+    <main>
+        <h2>Set Your Monthly Limits</h2>
+        <form id="budget-form">
+            <div id="budget-fields-container">
+                </div>
+            <button type="submit" id="save-btn">Save Budgets</button>
+        </form>
+    </main>
+
+    <script>
+        // GATEKEEPER: If no token, redirect to login page
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            window.location.href = 'login.html';
+        }
+
+        const budgetForm = document.getElementById('budget-form');
+        const budgetContainer = document.getElementById('budget-fields-container');
+        const saveBtn = document.getElementById('save-btn');
+
+        // Function to fetch and display the budget form
+        async function fetchAndDisplayBudgets() {
+            const response = await fetch('http://127.0.0.1:5000/get_budgets', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) {
+                // If token is invalid, kick user out
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            const result = await response.json();
+            budgetContainer.innerHTML = ''; // Clear previous fields
+
+            result.budgets.forEach(budget => {
+                const group = document.createElement('div');
+                group.className = 'budget-form-group';
+                group.innerHTML = `
+                    <label for="cat-${budget.id}">${budget.name}</label>
+                    <input type="number" id="cat-${budget.id}" data-category-id="${budget.id}" value="${budget.amount || ''}" placeholder="0.00">
+                `;
+                budgetContainer.appendChild(group);
+            });
+        }
+
+        // Function to save the budgets
+        budgetForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            saveBtn.textContent = 'Saving...';
+            
+            const inputs = budgetContainer.querySelectorAll('input[type="number"]');
+            const promises = [];
+
+            inputs.forEach(input => {
+                const amount = input.value;
+                if (amount) { // Only save if a value is entered
+                    const category_id = input.dataset.categoryId;
+                    const promise = fetch('http://127.0.0.1:5000/set_budget', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ category_id: parseInt(category_id), amount: parseFloat(amount) })
+                    });
+                    promises.push(promise);
+                }
+            });
+
+            await Promise.all(promises);
+            saveBtn.textContent = 'Budgets Saved!';
+            setTimeout(() => { saveBtn.textContent = 'Save Budgets'; }, 2000);
+        });
+
+        // Load the budgets when the page is opened
+        document.addEventListener('DOMContentLoaded', fetchAndDisplayBudgets);
+    </script>
+</body>
+</html>

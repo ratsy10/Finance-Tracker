@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Advisor Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background-color: #f4f7f9; }
+        header { background: #2c3e50; color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { margin: 0; font-size: 1.5em; }
+        header a { color: white; text-decoration: none; background: #3498db; padding: 0.5rem 1rem; border-radius: 4px; margin-right: 1rem; }
+        main { display: flex; flex-wrap: wrap; padding: 2rem; gap: 2rem; }
+        .panel { background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); padding: 1.5rem; }
+        .left-panel { flex: 1; min-width: 300px; }
+        .right-panel { flex: 2; min-width: 400px; }
+        h2 { color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 0.5rem; margin-top: 0; }
+        #micButton { background-color: #3498db; border: none; border-radius: 50%; width: 60px; height: 60px; cursor: pointer; }
+        #micButton.recording { background-color: #e74c3c; }
+        #micIcon { width: 30px; height: 30px; fill: white; }
+        .summary { text-align: center; margin-bottom: 2rem; }
+        .summary p { margin: 0; color: #7f8c8d; }
+        .summary h3 { margin: 0.5rem 0; color: #e74c3c; font-size: 2.5em; }
+        .budget-item { margin-bottom: 1rem; }
+        .budget-item-info { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
+        .progress-bar { background-color: #ecf0f1; border-radius: 5px; height: 10px; overflow: hidden; }
+        .progress { background-color: #27ae60; height: 100%; transition: width 0.5s ease-in-out; }
+        .progress.over-budget { background-color: #e74c3c; }
+        
+        /* --- NEW STYLES FOR TRANSACTION LIST --- */
+        .transaction-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; border-bottom: 1px solid #eee; }
+        .transaction-details { display: flex; flex-direction: column; }
+        .transaction-description { font-weight: 600; color: #34495e; }
+        .transaction-category { font-size: 0.8em; color: #7f8c8d; }
+        .transaction-info { text-align: right; }
+        .transaction-amount { font-weight: 600; font-size: 1.1em; color: #c0392b; }
+        .transaction-date { font-size: 0.8em; color: #95a5a6; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>My Dashboard</h1>
+        <div>
+            <a href="budgets.html">Manage Budgets</a>
+            <button id="logout-btn" style="background: #c0392b; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">Logout</button>
+        </div>
+    </header>
+    <main>
+        <div class="left-panel">
+            <h2>Monthly Summary</h2>
+            <div class="summary">
+                <p>You've spent this month</p>
+                <h3 id="total-spent">₹0.00</h3>
+            </div>
+            <div id="budget-summary-container"></div>
+        </div>
+        <div class="right-panel">
+            <h2>Add Expense</h2>
+            <button id="micButton"><svg id="micIcon" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg></button>
+            <p id="status">Click to speak...</p>
+            <h2 style="margin-top: 2rem;">Recent Transactions</h2>
+            <ul id="expense-list" style="list-style-type: none; padding: 0;"></ul>
+        </div>
+    </main>
+
+    <script>
+        const token = localStorage.getItem('authToken');
+        if (!token) { window.location.href = 'login.html'; }
+
+        document.getElementById('logout-btn').onclick = () => {
+            localStorage.removeItem('authToken');
+            window.location.href = 'login.html';
+        };
+
+        const totalSpentEl = document.getElementById('total-spent');
+        const budgetContainer = document.getElementById('budget-summary-container');
+        const expenseListEl = document.getElementById('expense-list');
+
+        async function fetchDashboardData() {
+            const response = await fetch('http://127.0.0.1:5000/dashboard', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!response.ok) { window.location.href = 'login.html'; return; }
+            
+            const result = await response.json();
+            displayDashboard(result);
+        }
+
+        function displayDashboard(data) {
+            let totalSpent = 0;
+            budgetContainer.innerHTML = '';
+            
+            data.dashboard_data.forEach(item => {
+                totalSpent += parseFloat(item.spent);
+                const budget = parseFloat(item.budget) || 0;
+                const spent = parseFloat(item.spent);
+                let percentage = budget > 0 ? (spent / budget) * 100 : 0;
+                
+                const itemEl = document.createElement('div');
+                itemEl.className = 'budget-item';
+                itemEl.innerHTML = `
+                    <div class="budget-item-info">
+                        <span>${item.name}</span>
+                        <span>₹${spent.toFixed(2)} / ₹${budget.toFixed(2)}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress ${percentage > 100 ? 'over-budget' : ''}" style="width: ${Math.min(percentage, 100)}%;"></div>
+                    </div>
+                `;
+                budgetContainer.appendChild(itemEl);
+            });
+            
+            totalSpentEl.textContent = `₹${totalSpent.toFixed(2)}`;
+
+            // --- MODIFICATION IS HERE ---
+            expenseListEl.innerHTML = ''; // Clear previous list
+            if(data.recent_expenses.length === 0){
+                expenseListEl.innerHTML = '<li>No recent transactions.</li>';
+                return;
+            }
+            data.recent_expenses.forEach(expense => {
+                const item = document.createElement('li');
+                item.className = 'transaction-item';
+
+                // Format the date to be more readable
+                const date = new Date(expense.expense_date);
+                const formattedDate = date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+                item.innerHTML = `
+                    <div class="transaction-details">
+                        <span class="transaction-description">${expense.description}</span>
+                        <span class="transaction-category">${expense.category}</span>
+                    </div>
+                    <div class="transaction-info">
+                        <span class="transaction-amount">- ₹${parseFloat(expense.amount).toFixed(2)}</span>
+                        <div class="transaction-date">${formattedDate}</div>
+                    </div>
+                `;
+                expenseListEl.appendChild(item);
+            });
+            // --- END OF MODIFICATION ---
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchDashboardData);
+
+        // --- Voice Recognition Logic (Unchanged) ---
+        const micButton = document.getElementById('micButton');
+        const statusElement = document.getElementById('status');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        micButton.onclick = () => recognition.start();
+        recognition.onstart = () => { micButton.classList.add('recording'); statusElement.textContent = "Listening..."; };
+        recognition.onend = () => { micButton.classList.remove('recording'); statusElement.textContent = "Click to speak..."; };
+        recognition.onresult = async (event) => {
+            const transcript = event.results[0][0].transcript;
+            statusElement.textContent = `Processing: "${transcript}"`;
+            const response = await fetch('http://127.0.0.1:5000/add_expense', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ text: transcript })
+            });
+            if (response.ok) {
+                fetchDashboardData();
+            } else {
+                statusElement.textContent = "Error adding expense.";
+            }
+        };
+    </script>
+</body>
+</html>
