@@ -1,0 +1,10 @@
+Flask
+flask-cors
+flask-bcrypt
+PyJWT
+google-generativeai
+python-dotenv
+gunicorn
+psycopg2-binary
+mysql-connector-python
+dj_database_url
