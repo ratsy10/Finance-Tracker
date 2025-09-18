@@ -45,7 +45,7 @@
 
         // Function to fetch and display the budget form
         async function fetchAndDisplayBudgets() {
-            const response = await fetch('http://127.0.0.1:5000/get_budgets', {
+            const response = await fetch('https://finance-tracker-bfe4.onrender.com/get_budgets', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
@@ -81,7 +81,7 @@
                 const amount = input.value;
                 if (amount) { // Only save if a value is entered
                     const category_id = input.dataset.categoryId;
-                    const promise = fetch('http://127.0.0.1:5000/set_budget', {
+                    const promise = fetch('hhttps://finance-tracker-bfe4.onrender.com/set_budget', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
