@@ -81,7 +81,7 @@
                 const amount = input.value;
                 if (amount) { // Only save if a value is entered
                     const category_id = input.dataset.categoryId;
-                    const promise = fetch('hhttps://finance-tracker-bfe4.onrender.com/set_budget', {
+                    const promise = fetch('https://finance-tracker-bfe4.onrender.com/set_budget', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
