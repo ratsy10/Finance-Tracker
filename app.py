@@ -149,8 +149,9 @@ def login():
     except Exception as err:
         return jsonify({"status": "error", "message": f"Database error: {err}"}), 500
     finally:
-        if 'conn' in locals() and conn:
+        if 'cursor' in locals() and cursor:
             cursor.close()
+        if 'conn' in locals() and conn and conn.is_connected():
             conn.close()
 
 # --- Expense & Budget Endpoints ---
